@@ -127,20 +127,6 @@ input[type=number]{-moz-appearance:textfield;}
 </head>
 <body>
 
-<!-- SETUP (primeira vez: colar config do Firebase) -->
-<div id="setup" class="setup hidden">
-  <h2>Conectar ao Firebase</h2>
-  <p>Cole abaixo o objeto <b>firebaseConfig</b> do seu projeto (Firebase Console &gt; Configurações do projeto &gt; Seus apps &gt; Config). Pode colar com ou sem a parte <span style="font-family:var(--mono)">const firebaseConfig =</span>.</p>
-  <textarea id="cfgTxt" placeholder='{
-  "apiKey": "...",
-  "authDomain": "...",
-  "projectId": "...",
-  ...
-}'></textarea>
-  <button class="addbtn" id="cfgSave">Salvar e conectar</button>
-  <div class="err-msg" id="cfgErr"></div>
-</div>
-
 <!-- APP -->
 <div id="app" class="hidden">
   <div class="hdr"><div class="hdr-in">
@@ -174,31 +160,22 @@ input[type=number]{-moz-appearance:textfield;}
 
 <script>
 // ============ config / firebase ============
+// Config do projeto Firebase embutida no app — nunca precisa colar nada.
+var FIREBASE_CONFIG={
+  apiKey:"AIzaSyBZA2-CRFOeICuUg8pRRLfdHTSaatjY4Ec",
+  authDomain:"painel-mercado-3496f.firebaseapp.com",
+  projectId:"painel-mercado-3496f",
+  storageBucket:"painel-mercado-3496f.firebasestorage.app",
+  messagingSenderId:"580194769229",
+  appId:"1:580194769229:web:b09937f25f95b5827fbf04"
+};
 var db=null;
 function tryInit(){
-  var raw=localStorage.getItem('pm_fbconfig');
-  if(!raw)return false;
   try{
-    var cfg=JSON.parse(raw);
-    firebase.initializeApp(cfg);
+    firebase.initializeApp(FIREBASE_CONFIG);
     db=firebase.firestore();
     return true;
-  }catch(e){console.error(e);localStorage.removeItem('pm_fbconfig');return false;}
-}
-function parseCfg(txt){
-  txt=txt.trim();
-  var i=txt.indexOf('{'), j=txt.lastIndexOf('}');
-  if(i<0||j<0)throw new Error('Não achei um objeto { } no texto.');
-  txt=txt.substring(i,j+1);
-  // tolera formato JS (chaves sem aspas)
-  var obj;
-  try{obj=JSON.parse(txt);}
-  catch(e){
-    var fixed=txt.replace(/([{,]\s*)([A-Za-z0-9_]+)\s*:/g,'$1"$2":').replace(/'/g,'"').replace(/,\s*}/g,'}');
-    obj=JSON.parse(fixed);
-  }
-  if(!obj.projectId||!obj.apiKey)throw new Error('Config incompleta: precisa ter pelo menos apiKey e projectId.');
-  return obj;
+  }catch(e){console.error(e);return false;}
 }
 
 // ============ estado ============
@@ -210,10 +187,12 @@ var DESPESAS=[
 ];
 var CATS=['Mercearia','Hortifruti','Açougue','Padaria','Limpeza / Outros'];
 
+function defaultDespesas(){
+  return DESPESAS.map(function(x){return {id:uid(),nome:x[1],valor:0};});
+}
 function defaultData(){
-  var d={faturamento:0,deducoesPct:7,estoqueInicial:0,despesas:{},despesasFinanceiras:0,
+  var d={faturamento:0,deducoesPct:7,estoqueInicial:0,despesas:defaultDespesas(),despesasFinanceiras:0,
     receitasFinanceiras:0,compras:[],fluxoCaixa:[],inventario:[]};
-  DESPESAS.forEach(function(x){d.despesas[x[0]]=0;});
   CATS.forEach(function(c){d.inventario.push({categoria:c,contabil:0,fisico:0});});
   return d;
 }
@@ -242,7 +221,7 @@ function compute(d){
   var ded=d.faturamento*d.deducoesPct/100;
   var rl=d.faturamento-ded;
   var lb=rl-cmv;
-  var desp=0;for(var k in d.despesas)desp+=num(d.despesas[k]);
+  var desp=0;(d.despesas||[]).forEach(function(x){desp+=num(x.valor);});
   var ebit=lb-desp;
   var ll=ebit-num(d.despesasFinanceiras)+num(d.receitasFinanceiras);
   var ent=d.fluxoCaixa.filter(function(f){return f.tipo==='entrada';}).reduce(function(s,f){return s+num(f.valor);},0);
@@ -270,6 +249,16 @@ function normalize(d){
   var base=defaultData();
   for(var k in base){if(d[k]===undefined)d[k]=base[k];}
   if(!Array.isArray(d.inventario)||d.inventario.length===0)d.inventario=base.inventario;
+  // migra despesas do formato antigo (objeto {pessoal:0,...}) para lista [{id,nome,valor}]
+  if(d.despesas && !Array.isArray(d.despesas)){
+    var labels={};DESPESAS.forEach(function(x){labels[x[0]]=x[1];});
+    var lista=[];
+    for(var key in d.despesas){
+      lista.push({id:uid(),nome:labels[key]||key,valor:num(d.despesas[key])});
+    }
+    d.despesas=lista.length?lista:defaultDespesas();
+  }
+  if(!Array.isArray(d.despesas))d.despesas=defaultDespesas();
   return d;
 }
 function persist(){
@@ -342,9 +331,18 @@ function viewDRE(s){
   h+='<div class="card"><div class="ct">Receita</div><div class="cb"><div class="grid2">'+
     fld('Faturamento do mês','faturamento',d.faturamento,'R$')+
     fld('Deduções (Simples, %)','deducoesPct',d.deducoesPct,'%')+'</div></div></div>';
-  h+='<div class="card"><div class="ct">Despesas operacionais</div><div class="cb"><div class="grid2">';
-  DESPESAS.forEach(function(x){h+=fld(x[1],'despesas.'+x[0],d.despesas[x[0]],'R$');});
-  h+='</div></div></div>';
+  h+='<div class="card"><div class="ct">Despesas operacionais</div><div class="cb">';
+  h+='<p class="note">Toque no nome para renomear. Adicione ou remova categorias como quiser (ex: Gasolina/entregas). Cada mês pode ter categorias diferentes.</p>';
+  if(!d.despesas.length)h+='<p class="empty">Nenhuma despesa. Toque abaixo para adicionar.</p>';
+  d.despesas.forEach(function(x){
+    h+='<div class="item"><div class="ir">'+
+      '<input type="text" placeholder="Nome da despesa" value="'+esc(x.nome)+'" data-list="despesas" data-id="'+x.id+'" data-f="nome">'+
+      '<input type="number" inputmode="decimal" class="val" placeholder="R$ 0" value="'+(x.valor===0?'':x.valor)+'" data-list="despesas" data-id="'+x.id+'" data-f="valor">'+
+      '<button class="del" data-del="despesas" data-id="'+x.id+'">🗑</button>'+
+      '</div></div>';
+  });
+  h+='<button class="addbtn" data-add="despesas">+ Nova despesa</button>';
+  h+='<div class="dash"></div>'+row('Total de despesas',brl(s.desp),{b:1})+'</div></div>';
   h+='<div class="card"><div class="ct">Financeiro (fora da operação)</div><div class="cb"><div class="grid2">'+
     fld('Despesas financeiras (juros/tarifas)','despesasFinanceiras',d.despesasFinanceiras,'R$')+
     fld('Receitas financeiras','receitasFinanceiras',d.receitasFinanceiras,'R$')+'</div></div></div>';
@@ -482,6 +480,7 @@ function bindInputs(){
   document.querySelectorAll('[data-add]').forEach(function(btn){
     btn.addEventListener('click',function(){
       if(btn.dataset.add==='compras')state.data.compras.push({id:uid(),data:'',fornecedor:'',valor:0});
+      else if(btn.dataset.add==='despesas')state.data.despesas.push({id:uid(),nome:'',valor:0});
       else state.data.fluxoCaixa.push({id:uid(),data:'',tipo:'entrada',descricao:'',valor:0});
       scheduleSave();render();
     });
@@ -523,19 +522,6 @@ document.getElementById('tabs').addEventListener('click',function(e){
 });
 
 // ============ boot ============
-document.getElementById('cfgSave').addEventListener('click',function(){
-  var errEl=document.getElementById('cfgErr');
-  errEl.style.display='none';
-  try{
-    var cfg=parseCfg(document.getElementById('cfgTxt').value);
-    localStorage.setItem('pm_fbconfig',JSON.stringify(cfg));
-    location.reload();
-  }catch(e){
-    errEl.textContent=e.message;
-    errEl.style.display='block';
-  }
-});
-
 if(tryInit()){
   Promise.all([loadMonth(state.monthKey),loadAll()]).then(function(res){
     state.data=res[0];state.history=res[1];
@@ -545,11 +531,10 @@ if(tryInit()){
     render();
   }).catch(function(e){
     console.error(e);
-    document.getElementById('loading').textContent='Erro ao conectar no Firebase. Confira as regras do Firestore e a config. ('+e.message+')';
+    document.getElementById('loading').textContent='Erro ao conectar no Firebase. Confira as regras do Firestore. ('+e.message+')';
   });
 }else{
-  document.getElementById('loading').classList.add('hidden');
-  document.getElementById('setup').classList.remove('hidden');
+  document.getElementById('loading').textContent='Erro ao iniciar o Firebase.';
 }
 
 // registra o service worker (permite instalar como app e abrir offline)
