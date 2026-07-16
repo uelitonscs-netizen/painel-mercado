@@ -1,8 +1,8 @@
 // Service worker do Painel do Mercado
 // Estratégia: network-first para o HTML (sempre pega a versão mais nova quando online),
 // com fallback pro cache quando estiver offline.
-var CACHE = 'painel-mercado-v1';
-var ASSETS = ['./', './index.html', './manifest.json'];
+var CACHE = 'painel-mercado-v2';
+var ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(ASSETS); }));
