@@ -364,16 +364,17 @@ function showToast(msg,isErr,sticky){
 
 // ============ render ============
 function render(){
-  var s=compute(state.data);
   document.getElementById('monthLbl').textContent=keyLabel(state.monthKey);
-  var kL=document.getElementById('kLucro');
-  kL.textContent=brl(s.ll); kL.classList.toggle('neg',s.ll<0);
-  document.getElementById('kMargem').textContent=pctf(s.ml);
-  var kP=document.getElementById('kPerda');
-  kP.textContent=pctf(s.perdaPct); kP.classList.toggle('neg',s.perdaPct>2);
-
   document.querySelectorAll('.tab').forEach(function(b){b.classList.toggle('on',b.dataset.t===state.tab);});
-
+  renderBody();
+}
+function renderBody(){
+  var s=compute(state.data);
+  var kL=document.getElementById('kLucro');
+  if(kL){kL.textContent=brl(s.ll); kL.classList.toggle('neg',s.ll<0);}
+  var kM=document.getElementById('kMargem');if(kM)kM.textContent=pctf(s.ml);
+  var kP=document.getElementById('kPerda');
+  if(kP){kP.textContent=pctf(s.perdaPct); kP.classList.toggle('neg',s.perdaPct>2);}
   var c=document.getElementById('content');
   if(state.tab==='dre')c.innerHTML=viewDRE(s);
   else if(state.tab==='caixa')c.innerHTML=viewCaixa(s);
@@ -606,10 +607,27 @@ function bindInputs(){
 function updateComputedOnly(){
   var s=compute(state.data);
   var kL=document.getElementById('kLucro');
-  kL.textContent=brl(s.ll);kL.classList.toggle('neg',s.ll<0);
-  document.getElementById('kMargem').textContent=pctf(s.ml);
+  if(kL){kL.textContent=brl(s.ll);kL.classList.toggle('neg',s.ll<0);}
+  var kM=document.getElementById('kMargem');if(kM)kM.textContent=pctf(s.ml);
   var kP=document.getElementById('kPerda');
-  kP.textContent=pctf(s.perdaPct);kP.classList.toggle('neg',s.perdaPct>2);
+  if(kP){kP.textContent=pctf(s.perdaPct);kP.classList.toggle('neg',s.perdaPct>2);}
+  // re-renderiza o conteúdo da aba para atualizar totais/resultado, preservando o foco
+  var active=document.activeElement;
+  var key=null,selStart=null,selEnd=null;
+  if(active&&(active.dataset.path||active.dataset.list)){
+    key=active.dataset.path?('path:'+active.dataset.path):('list:'+active.dataset.list+':'+active.dataset.id+':'+active.dataset.f);
+    try{selStart=active.selectionStart;selEnd=active.selectionEnd;}catch(e){}
+  }
+  renderBody();
+  if(key){
+    var sel='[data-path="'+key.slice(5)+'"]';
+    if(key.indexOf('list:')===0){
+      var p=key.split(':');
+      sel='[data-list="'+p[1]+'"][data-id="'+p[2]+'"][data-f="'+p[3]+'"]';
+    }
+    var el=document.querySelector(sel);
+    if(el){el.focus();try{if(selStart!=null)el.setSelectionRange(selStart,selEnd);}catch(e){}}
+  }
 }
 
 function switchMonth(newKey){
